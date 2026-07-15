@@ -233,6 +233,20 @@ func extractFairnessAndPriority(reqCtx *RequestContext) (string, string) {
 	return fairnessID, priority
 }
 
+// isInfrastructureError returns true if the error represents an EPP readiness or infrastructure
+// failure where Envoy should trigger failure_mode_allow: true (Fail-Open) rather than
+// returning an immediate HTTP error response.
+func isInfrastructureError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, errcommon.ErrSubstrNoPodsAvailable) ||
+		strings.Contains(msg, errcommon.ErrSubstrFailedToFindCandidates) ||
+		strings.Contains(msg, errcommon.ErrSubstrDatastoreNotSynced) ||
+		strings.Contains(msg, errcommon.ErrSubstrNotServing)
+}
+
 func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer) error {
 	ctx := srv.Context()
 
@@ -517,6 +531,9 @@ func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer)
 				logger.V(logutil.DEBUG).Error(err, "Failed to process request", "request", req)
 			} else {
 				logger.Error(err, "Failed to process request")
+			}
+			if isInfrastructureError(err) {
+				return status.Error(codes.Unavailable, err.Error())
 			}
 			resp, err := errcommon.BuildErrResponse(err)
 			if err != nil {

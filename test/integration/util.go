@@ -514,9 +514,14 @@ func StreamedRequest(
 	// Buffered channel avoids blocking the goroutine on the last read.
 	recvChan := make(chan recvResult, expectedResponses+1)
 
+	readsCount := expectedResponses
+	if readsCount == 0 {
+		readsCount = 1
+	}
+
 	// Start reading in background.
 	go func() {
-		for range expectedResponses {
+		for range readsCount {
 			res, err := client.Recv()
 			recvChan <- recvResult{res, err}
 			if err != nil {
@@ -531,10 +536,10 @@ func StreamedRequest(
 	defer cancel()
 
 	// Collect results with timeout.
-	for i := range expectedResponses {
+	for i := range readsCount {
 		select {
 		case <-ctx.Done():
-			t.Logf("Timeout waiting for response %d of %d: %v", i+1, expectedResponses, ctx.Err())
+			t.Logf("Timeout waiting for response %d of %d: %v", i+1, readsCount, ctx.Err())
 			return responses, fmt.Errorf("timeout waiting for responses: %w", ctx.Err())
 
 		case result := <-recvChan:
