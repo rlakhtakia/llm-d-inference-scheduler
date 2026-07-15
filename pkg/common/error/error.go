@@ -68,6 +68,15 @@ const (
 	ResourceExhausted  = "ResourceExhausted"
 )
 
+// Infrastructure error substrings used to detect EPP readiness/datastore failures
+// where Envoy should fail open (failure_mode_allow: true).
+const (
+	ErrSubstrNoPodsAvailable        = "no pods available in datastore"
+	ErrSubstrFailedToFindCandidates = "failed to find endpoint candidates"
+	ErrSubstrDatastoreNotSynced     = "datastore not synced"
+	ErrSubstrNotServing             = "not serving"
+)
+
 // Error returns a string version of the error.
 func (e Error) Error() string {
 	return fmt.Sprintf("inference error: %s - %s", e.Code, e.Msg)

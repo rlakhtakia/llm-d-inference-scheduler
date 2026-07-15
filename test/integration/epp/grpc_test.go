@@ -25,6 +25,8 @@ import (
 	envoyTypePb "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/testing/protocmp"
 
 	reqcommon "github.com/llm-d/llm-d-router/pkg/common/request"
@@ -69,6 +71,7 @@ func TestFullDuplexStreamed_GRPC_KubeInferenceObjectiveRequest(t *testing.T) {
 		// requiresCRDs indicates that this test case relies on specific Gateway API CRD features (like
 		// InferenceModelRewrite) which are not available in Standalone runMode without CRD.
 		requiresCRDs bool
+		wantErrCode  codes.Code
 	}{
 		// --- Standard Routing Logic ---
 		{
@@ -167,11 +170,10 @@ func TestFullDuplexStreamed_GRPC_KubeInferenceObjectiveRequest(t *testing.T) {
 			},
 		},
 		{
-			name:     "no backend pods available",
-			requests: integration.ReqHeaderOnly(map[string]string{"content-type": "application/json"}),
-			pods:     nil,
-			wantResponses: ExpectReject(envoyTypePb.StatusCode_InternalServerError,
-				"inference error: Internal - no pods available in datastore"),
+			name:        "no backend pods available",
+			requests:    integration.ReqHeaderOnly(map[string]string{"content-type": "application/json"}),
+			pods:        nil,
+			wantErrCode: codes.Unavailable,
 		},
 
 		// // --- Subsetting & Metadata ---
@@ -469,6 +471,11 @@ func TestFullDuplexStreamed_GRPC_KubeInferenceObjectiveRequest(t *testing.T) {
 			}
 
 			responses, err := integration.StreamedRequest(t, h.Client, tc.requests, len(tc.wantResponses))
+			if tc.wantErrCode != codes.OK && tc.wantErrCode != 0 {
+				require.Error(t, err)
+				require.Equal(t, tc.wantErrCode, status.Code(err))
+				return
+			}
 			require.NoError(t, err)
 
 			if diff := cmp.Diff(tc.wantResponses, responses,

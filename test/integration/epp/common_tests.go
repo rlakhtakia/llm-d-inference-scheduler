@@ -25,6 +25,7 @@ import (
 	envoyCorev3 "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	extProcPb "github.com/envoyproxy/go-control-plane/envoy/service/ext_proc/v3"
 	envoyTypePb "github.com/envoyproxy/go-control-plane/envoy/type/v3"
+	"google.golang.org/grpc/codes"
 
 	reqcommon "github.com/llm-d/llm-d-router/pkg/common/request"
 	integration "github.com/llm-d/llm-d-router/test/integration"
@@ -286,6 +287,8 @@ type testCase struct {
 	requiresCRDs bool
 	// wantSpans lists the span names expected to be recorded (hermetic tests only).
 	wantSpans []string
+	// wantErrCode asserts that the gRPC stream terminates with the specified gRPC status code (e.g. codes.Unavailable for Fail-Open).
+	wantErrCode codes.Code
 }
 
 // commonTestCases returns the test cases shared between the standard and data layer test suites.
@@ -321,11 +324,10 @@ func commonTestCases(prio func(int) int) []testCase {
 			},
 		},
 		{
-			name:     "no backend pods available",
-			requests: integration.ReqHeaderOnly(map[string]string{"content-type": "application/json"}),
-			pods:     nil,
-			wantResponses: ExpectReject(envoyTypePb.StatusCode_InternalServerError,
-				"inference error: Internal - no pods available in datastore"),
+			name:        "no backend pods available",
+			requests:    integration.ReqHeaderOnly(map[string]string{"content-type": "application/json"}),
+			pods:        nil,
+			wantErrCode: codes.Unavailable,
 		},
 		{
 			name: "request missing model field",
