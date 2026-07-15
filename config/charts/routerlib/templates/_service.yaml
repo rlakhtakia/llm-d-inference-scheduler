@@ -32,6 +32,10 @@ spec:
       protocol: TCP
       port: {{ $.Values.router.epp.extProcPort | default 9002 }}
       appProtocol: kubernetes.io/h2c
+    - name: grpc-health
+      protocol: TCP
+      port: {{ $.Values.router.epp.healthPort | default 9003 }}
+      appProtocol: kubernetes.io/h2c
     - name: http-metrics
       protocol: TCP
       port: {{ $.Values.router.metricsPort | default 9090 }}

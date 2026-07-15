@@ -200,6 +200,9 @@ router:
                     type: {{ include "llm-d-router.proxy.extProcClusterType" . }}
                     connect_timeout: 86400s
                     lb_policy: LEAST_REQUEST
+                    common_lb_config:
+                      healthy_panic_threshold:
+                        value: 10.0
                     circuit_breakers:
                       thresholds:
                         - max_connections: 40000
@@ -207,15 +210,12 @@ router:
                           max_requests: 40000
                           max_retries: 1024
                     health_checks:
-                      - timeout: 2s
-                        interval: 10s
-                        unhealthy_threshold: 3
-                        healthy_threshold: 2
+                      - timeout: 0.250s
+                        interval: 1s
+                        unhealthy_threshold: 1
+                        healthy_threshold: 1
                         reuse_connection: true
-                        grpc_health_check:
-                          service_name: "envoy.service.ext_proc.v3.ExternalProcessor"
-                        tls_options:
-                          alpn_protocols: ["h2"]
+                        tcp_health_check: {}
                     transport_socket:
                       name: "envoy.transport_sockets.tls"
                       typed_config:
@@ -232,8 +232,51 @@ router:
                     load_assignment:
                       cluster_name: ext_proc
                       endpoints:
+                        {{- $gkePB := include "llm-d-router.gkePreferredBackends" . | fromYaml | default dict -}}
+                        {{- if $gkePB.enabled }}
+                        {{- $preferredReplicas := $gkePB.preferredReplicas | default 1 | int }}
+                        {{- $defaultReplicas := $gkePB.defaultReplicas | default 1 | int }}
+                        - locality:
+                            region: ext_proc/primary
+                          priority: 0
+                          load_balancing_weight:
+                            value: 1
+                          lb_endpoints:
+                            {{- range $i := untilStep 0 (int $preferredReplicas) 1 }}
+                            {{- $host := include "llm-d-router.proxy.extProcHost" $ }}
+                            {{- if gt (int $i) 0 }}
+                              {{- $host = printf "%s-preferred-%d.%s.svc.%s" (include "llm-d-router.name" $) (int $i) $.Release.Namespace ($.Values.router.clusterDomain | default "cluster.local") }}
+                            {{- end }}
+                            - endpoint:
+                                address:
+                                  socket_address:
+                                    address: {{ $host }}
+                                    port_value: 9002
+                              load_balancing_weight: 1
+                            {{- end }}
+                        - locality:
+                            region: ext_proc/standby
+                          priority: 1
+                          load_balancing_weight:
+                            value: 1
+                          lb_endpoints:
+                            {{- range $j := untilStep 0 (int $defaultReplicas) 1 }}
+                            {{- $backupHost := printf "%s-backup.%s.svc.%s" (include "llm-d-router.name" $) $.Release.Namespace ($.Values.router.clusterDomain | default "cluster.local") }}
+                            {{- if gt (int $j) 0 }}
+                              {{- $backupHost = printf "%s-backup-%d.%s.svc.%s" (include "llm-d-router.name" $) (int $j) $.Release.Namespace ($.Values.router.clusterDomain | default "cluster.local") }}
+                            {{- end }}
+                            - endpoint:
+                                address:
+                                  socket_address:
+                                    address: {{ $backupHost }}
+                                    port_value: 9002
+                              load_balancing_weight: 1
+                            {{- end }}
+                        {{- else }}
                         - locality:
                             region: ext_proc/e2e/0
+                          load_balancing_weight:
+                            value: 1
                           lb_endpoints:
                             - endpoint:
                                 address:
@@ -241,6 +284,7 @@ router:
                                     address: {{ include "llm-d-router.proxy.extProcHost" . }}
                                     port_value: 9002
                               load_balancing_weight: 1
+                        {{- end }}
         name: envoy-proxy
         image: docker.io/envoyproxy/envoy:distroless-v1.33.2
         command: "envoy"
