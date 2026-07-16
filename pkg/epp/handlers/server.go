@@ -240,6 +240,9 @@ func isInfrastructureError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errcommon.CanonicalCode(err) == errcommon.ServiceUnavailable {
+		return true
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, errcommon.ErrSubstrNoPodsAvailable) ||
 		strings.Contains(msg, errcommon.ErrSubstrFailedToFindCandidates) ||
@@ -528,11 +531,19 @@ func (s *StreamingServer) Process(srv extProcPb.ExternalProcessor_ProcessServer)
 		// Handle the err and fire an immediate response.
 		if err != nil {
 			if logger.V(logutil.DEBUG).Enabled() {
-				logger.V(logutil.DEBUG).Error(err, "Failed to process request", "request", req)
+				logger.V(logutil.DEBUG).Error(err, "Failed to process request",
+					"request", req,
+					"canonicalCode", errcommon.CanonicalCode(err),
+					"isInfrastructureError", isInfrastructureError(err))
 			} else {
-				logger.Error(err, "Failed to process request")
+				logger.Error(err, "Failed to process request",
+					"canonicalCode", errcommon.CanonicalCode(err),
+					"isInfrastructureError", isInfrastructureError(err))
 			}
 			if isInfrastructureError(err) {
+				logger.Info("Emitting gRPC Unavailable (code 14) for Fail-Open",
+					"canonicalCode", errcommon.CanonicalCode(err),
+					"error", err.Error())
 				return status.Error(codes.Unavailable, err.Error())
 			}
 			resp, err := errcommon.BuildErrResponse(err)
